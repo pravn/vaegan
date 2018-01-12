@@ -17,9 +17,11 @@ This paper attempts to add a learned reconstruction loss to a VAE.
 The VAE loss term for log p(x|z) in the decoder is replaced by a reconstruction loss
 proportional to p(D(x)|D(x_tilde)) ~ N(D(x)|D(x_tilde),I), where x is an input image, x_tilde is a
 sample generated from the decoder Dec(z).
-Therefore, I interpret D(x) = 1. 
+D(x) is the output of data passed into discriminator
+D(x_tilde) is the output of model (fake) passed into discriminator
 
-We therefore seem to be minimizing (1-D(Dec(z)))^2.
+
+We therefore seem to be minimizing (D(x)-D(Dec(z)))^2.
 
 This produces phantom digits that seem plausible, but there might be some generator/discriminator dynamics
 that I am missing. 

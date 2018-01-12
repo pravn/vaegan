@@ -45,6 +45,42 @@ test_loader = torch.utils.data.DataLoader(
 #    if classname.find('fc1
 
 
+class VAE(nn.Module):
+    def __init__(self):
+        super(VAE, self).__init__()
+
+        self.fc1 = nn.Linear(784, 400)
+        self.fc21 = nn.Linear(400, 20)
+        self.fc22 = nn.Linear(400, 20)
+        self.fc3 = nn.Linear(20, 400)
+        self.fc4 = nn.Linear(400, 784)
+
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def encode(self, x):
+        h1 = self.relu(self.fc1(x))
+        return self.fc21(h1), self.fc22(h1)
+
+    def reparameterize(self, mu, logvar):
+        if self.training:
+          std = logvar.mul(0.5).exp_()
+          eps = Variable(std.data.new(std.size()).normal_())
+          return eps.mul(std).add_(mu)
+        else:
+          return mu
+
+    def decode(self, z):
+        h3 = self.relu(self.fc3(z))
+        return self.sigmoid(self.fc4(h3))
+
+    def forward(self, x):
+        mu, logvar = self.encode(x.view(-1, 784))
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z).view(-1,28,28), mu, logvar
+
+
+
 class _netG(nn.Module):
     def __init__(self):
         super(_netG, self).__init__()
@@ -75,73 +111,12 @@ class _netG(nn.Module):
         z = z.view(-1,z.size(1),1,1)
         return self.main(z)
 
-
-class VAE(nn.Module):
-    def __init__(self):
-        super(VAE, self).__init__()
-
-        self.fc1 = nn.Linear(784, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, 784)
-
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-        self.main = nn.Sequential(
-        #1x1->4x4
-            nn.ConvTranspose2d(20,20*8,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
-            nn.BatchNorm2d(20*8), 
-            nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,20*8,4,2,1,bias=False), #4x4->8x8
-            nn.BatchNorm2d(20*8),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,20*8,4,2,1,bias=False), #8x8->16x16
-            nn.BatchNorm2d(20*8),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,1,2,2,2,bias=False), #16x16->28x28
-            nn.Tanh()
-            )
-
-
-    def encode(self, x):
-        h1 = self.relu(self.fc1(x))
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparameterize(self, mu, logvar):
-        if self.training:
-          std = logvar.mul(0.5).exp_()
-          eps = Variable(std.data.new(std.size()).normal_())
-          return eps.mul(std).add_(mu)
-        else:
-          return mu
-
-
-
-    def decode(self, z):
-        #h3 = self.relu(self.fc3(z))
-        #return self.sigmoid(self.fc4(h3))
-        #z (bsz, 20)
-        z = z.view(-1,z.size(1),1,1)
-        return self.main(z)
-
-    def forward(self, x):
-        print('x.size() ', x.size())
-        mu, logvar = self.encode(x.view(-1, 784))
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
-
-
-#model = VAE()
-#if USE_CUDA
-#    model.cuda()
-
-
-
 class _netD(nn.Module):
     def __init__(self):
         super(_netD, self).__init__()
+
+
+        """
         self.main = nn.Sequential(
         #state size 1x28x28
             #28x28->16x16
@@ -157,51 +132,66 @@ class _netD(nn.Module):
             #4x4->1x1
             nn.Conv2d(32,1,4,1,0),
             nn.Sigmoid()
+            )"""
+
+        
+        self.main = nn.Sequential(
+            nn.Conv2d(1,8,2,2,2,bias=False),
+            nn.LeakyReLU(0.2,inplace=True),
+            nn.Conv2d(8,16,4,2,1,bias=False),
+            nn.LeakyReLU(0.2,inplace=True), #8x8
+            nn.Conv2d(16,1,8,1,0), #1x1
+            nn.Sigmoid()
             )
 
+        """
+        self.main = nn.Sequential(
+            nn.Linear(784,1),
+            nn.Sigmoid()
+            )"""
+
+
+
     def forward(self,x):
-        #o = self.main(x.view(-1,1,28,28))
-        print('xD.size()', x.size())
         o = self.main(x.view(-1,1,28,28))
+        #o = self.main(x.view(-1,784))
+        print('o.size()',o.size())
         return o
-        
 
 
+def loss_function(recon_x, x, mu, logvar):
+    #BCE = F.binary_cross_entropy(recon_x.view(-1,784), x.view(-1, 784))
+    MSE = F.mse_loss(recon_x.view(-1,784), x.view(-1,784))
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    # Normalise by same number of elements as in reconstruction
+    KLD /= args.batch_size * 784
+
+    return MSE + KLD
+
+
+bsz = 100
+
+def loss_new(gan_loss,mu,logvar):
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    # Normalise by same number of elements as in reconstruction
+    KLD /= bsz * 784
+
+    return gan_loss + KLD
+    
 
 
 criterion = nn.BCELoss()
 
-
-
-
-    
-
-
-netG = _netG()
-#netG = VAE()
+netG = VAE()
 netD = _netD()
 
 optimizerD = optim.Adam(netD.parameters(), lr = 1e-3)
 optimizerG = optim.Adam(netG.parameters(), lr = 1e-3)
-
-bsz = 100
-
-
-
-def loss_function(gan_loss, mu, logvar):
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    KLD/= bsz * 784
-
-    return gan_loss + KLD
-
-
-def vae_loss(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x.view(-1,784),x.view(-1,784))
-
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    KLD /=bsz * 784
-
-    return BCE + KLD
 
 
 
@@ -224,7 +214,7 @@ if(USE_CUDA):
     criterion = criterion.cuda()
     input, label = input.cuda(), label.cuda()
     noise = noise.cuda()
-#    fixed_noise = fixed_noise.cuda()
+    fixed_noise = fixed_noise.cuda()
 
 fixed_noise = Variable(fixed_noise)
 
@@ -243,7 +233,7 @@ for epoch in range(10000):
         inputv = Variable(input)
         labelv = Variable(label)
 
-#        print('real cpu', real_cpu.size())
+        print('real cpu', real_cpu.size())
         
         output = netD(inputv)
         errD_real = criterion(output, labelv)
@@ -251,9 +241,9 @@ for epoch in range(10000):
         D_x = output.data.mean()
 
         #train with fake
- #       noise.resize_(bsz, 20).normal_(0,1)
-        #fake, mu, logvar= netG(inputv)
-        fake= netG(inputv)
+        noise.resize_(bsz, 20).normal_(0,1)
+        noisev = Variable(noise)
+        fake,mu,logvar = netG(inputv)
         labelv = Variable(label.fill_(fake_label))
         output = netD(fake.detach())
         errD_fake = criterion(output, labelv)
@@ -261,14 +251,14 @@ for epoch in range(10000):
         D_G_z1 = output.data.mean()
         errD = errD_real + errD_fake
         optimizerD.step()
+
         
-        # update G: maximize  log((D(G(z))
+        # update G: maximize log((D(G(z))
         netG.zero_grad()
         labelv = Variable(label.fill_(real_label))
         output = netD(fake)
-        errG = criterion(output, labelv)
-        #errG = vae_loss(fake,inputv,mu,logvar)
-        #errG = loss_function(errG, mu, logvar)
+        #errG = criterion(output,labelv) + loss_function(fake,inputv,mu,logvar)
+        errG = loss_function(fake,inputv,mu,logvar) + 0.5*criterion(output,labelv)
         errG.backward()
         D_G_z2 = output.data.mean()
         optimizerG.step()
@@ -277,15 +267,13 @@ for epoch in range(10000):
               % (epoch, 100, i, len(train_loader),
                  errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2))
         if i % 100 == 0:
-            comparison = torch.cat([inputv[:8],fake.view(bsz,1,28,28)[:8]])
-            save_image(comparison.data.cpu(), 'results/recon.png',nrow=8)
-#            vutils.save_image(real_cpu,
-#                    '%s/real_samples.png' % args.outf,
-#                    normalize=True)
-#            fake = netG(fixed_noise)
-#            vutils.save_image(fake.data.view(-1,1,28,28),
-#                    '%s/fake_samples.png' % (args.outf),
-#                    normalize=True)
+            print('real_cpu.size()', real_cpu.size())
+            vutils.save_image(real_cpu,
+                    '%s/real_samples.png' % args.outf,
+                    normalize=True)
+            vutils.save_image(fake.data.view(-1,1,28,28),
+                    '%s/fake_samples.png' % (args.outf),
+                    normalize=True)
 
     # do checkpointing
     #torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (args.outf, epoch))

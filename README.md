@@ -15,7 +15,7 @@ https://arxiv.org/abs/1512.09300
 
 This paper attempts to add a learned reconstruction loss to a VAE.
 The VAE loss term for log p(x|z) in the decoder is replaced by a reconstruction loss
-proportional to p(D(x)|D(x_tilde)) ~ N(D(x)|D(x_tilde)), where x is an input image, x_tilde is a
+proportional to p(D(x)|D(x_tilde)) ~ N(D(x)|D(x_tilde),I), where x is an input image, x_tilde is a
 sample generated from the decoder Dec(z).
 Therefore, I interpret D(x) = 1. 
 

@@ -116,7 +116,7 @@ class _netD(nn.Module):
         super(_netD, self).__init__()
 
 
-        """
+
         self.main = nn.Sequential(
         #state size 1x28x28
             #28x28->16x16
@@ -132,9 +132,10 @@ class _netD(nn.Module):
             #4x4->1x1
             nn.Conv2d(32,1,4,1,0),
             nn.Sigmoid()
-            )"""
+            )
 
-        
+
+        """
         self.main = nn.Sequential(
             nn.Conv2d(1,8,2,2,2,bias=False),
             nn.LeakyReLU(0.2,inplace=True),
@@ -142,7 +143,7 @@ class _netD(nn.Module):
             nn.LeakyReLU(0.2,inplace=True), #8x8
             nn.Conv2d(16,1,8,1,0), #1x1
             nn.Sigmoid()
-            )
+            )"""
 
         """
         self.main = nn.Sequential(
@@ -161,7 +162,8 @@ class _netD(nn.Module):
 
 def loss_function(recon_x, x, mu, logvar):
     #BCE = F.binary_cross_entropy(recon_x.view(-1,784), x.view(-1, 784))
-    MSE = F.mse_loss(recon_x.view(-1,784), x.view(-1,784))
+    #MSE = F.mse_loss(recon_x.view(-1,784), x.view(-1,784))
+    MSE = F.mse_loss(recon_x,x)
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -190,8 +192,8 @@ criterion = nn.BCELoss()
 netG = VAE()
 netD = _netD()
 
-optimizerD = optim.Adam(netD.parameters(), lr = 1e-3)
-optimizerG = optim.Adam(netG.parameters(), lr = 1e-3)
+optimizerD = optim.Adam(netD.parameters(), lr = 1e-4)
+optimizerG = optim.Adam(netG.parameters(), lr = 1e-4)
 
 
 
@@ -241,8 +243,6 @@ for epoch in range(10000):
         D_x = output.data.mean()
 
         #train with fake
-        noise.resize_(bsz, 20).normal_(0,1)
-        noisev = Variable(noise)
         fake,mu,logvar = netG(inputv)
         labelv = Variable(label.fill_(fake_label))
         output = netD(fake.detach())
@@ -258,7 +258,7 @@ for epoch in range(10000):
         labelv = Variable(label.fill_(real_label))
         output = netD(fake)
         #errG = criterion(output,labelv) + loss_function(fake,inputv,mu,logvar)
-        errG = loss_function(fake,inputv,mu,logvar) + 0.5*criterion(output,labelv)
+        errG = loss_function(output,labelv,mu,logvar) #+ 0.5*criterion(output,labelv)
         errG.backward()
         D_G_z2 = output.data.mean()
         optimizerG.step()

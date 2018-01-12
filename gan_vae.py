@@ -52,15 +52,64 @@ class VAE(nn.Module):
         self.fc1 = nn.Linear(784, 400)
         self.fc21 = nn.Linear(400, 20)
         self.fc22 = nn.Linear(400, 20)
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, 784)
+        #self.fc3 = nn.Linear(20, 400)
+        #self.fc4 = nn.Linear(400, 784)
 
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
+        self.mu_ = nn.Sequential(
+            #28x28->12x12
+            nn.Conv2d(1,8,5,2,0,bias=False),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+            #12x12->4x4
+            nn.Conv2d(8,64,5,2,0,bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            #4x4->1x1: 20,1,1
+            nn.Conv2d(64,20,4,1,0,bias=False),
+            nn.ReLU(True)
+            )
+
+
+        self.logsigma_ = nn.Sequential(
+            #28x28->12x12
+            nn.Conv2d(1,8,5,2,0,bias=False),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+            #12x12->4x4
+            nn.Conv2d(8,64,5,2,0,bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            #4x4->1x1: 20,1,1
+            nn.Conv2d(64,20,4,1,0,bias=False),
+            nn.ReLU(True)
+            )
+        
+
+        self.dec_ = nn.Sequential(
+            #1x1->4x4
+            nn.ConvTranspose2d(20,20*8,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
+            nn.BatchNorm2d(20*8), 
+            nn.ReLU(True),
+            nn.ConvTranspose2d(20*8,20*16,4,2,1,bias=False), #4x4->8x8
+            nn.BatchNorm2d(20*16),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(20*16,20*32,4,2,1,bias=False), #8x8->16x16
+            nn.BatchNorm2d(20*32),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(20*32,1,2,2,2,bias=False), #16x16->28x28
+            nn.Sigmoid()
+            )
+        
+
     def encode(self, x):
         h1 = self.relu(self.fc1(x))
         return self.fc21(h1), self.fc22(h1)
+
+    def encode_new(self,x):
+        return self.mu_(x), self.logsigma_(x)
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -70,14 +119,21 @@ class VAE(nn.Module):
         else:
           return mu
 
+
+    def decode_new(self,z):
+        z = z.view(-1,z.size(1),1,1)
+        return(self.dec_(z))
+        
+      
     def decode(self, z):
         h3 = self.relu(self.fc3(z))
         return self.sigmoid(self.fc4(h3))
 
     def forward(self, x):
-        mu, logvar = self.encode(x.view(-1, 784))
+        #mu, logvar = self.encode(x.view(-1, 784))
+        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
         z = self.reparameterize(mu, logvar)
-        return self.decode(z).view(-1,28,28), mu, logvar
+        return self.decode_new(z).view(-1,28,28), mu, logvar
 
 
 
@@ -90,16 +146,16 @@ class _netG(nn.Module):
 
         self.main = nn.Sequential(
             #1x1->4x4
-            nn.ConvTranspose2d(20,20*8,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
-            nn.BatchNorm2d(20*8), 
+            nn.ConvTranspose2d(20,20*16,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
+            nn.BatchNorm2d(20*16), 
             nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,20*8,4,2,1,bias=False), #4x4->8x8
-            nn.BatchNorm2d(20*8),
+            nn.ConvTranspose2d(20*16,20*32,4,2,1,bias=False), #4x4->8x8
+            nn.BatchNorm2d(20*32),
             nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,20*8,4,2,1,bias=False), #8x8->16x16
-            nn.BatchNorm2d(20*8),
+            nn.ConvTranspose2d(20*32,20*64,4,2,1,bias=False), #8x8->16x16
+            nn.BatchNorm2d(20*64),
             nn.ReLU(True),
-            nn.ConvTranspose2d(20*8,1,2,2,2,bias=False), #16x16->28x28
+            nn.ConvTranspose2d(20*64,1,2,2,2,bias=False), #16x16->28x28
             nn.Tanh()
             )
         
@@ -156,7 +212,6 @@ class _netD(nn.Module):
     def forward(self,x):
         o = self.main(x.view(-1,1,28,28))
         #o = self.main(x.view(-1,784))
-        print('o.size()',o.size())
         return o
 
 
@@ -209,8 +264,8 @@ fake_label = 0
 USE_CUDA = 1
 
 if(USE_CUDA):
-    netG = netG.cuda()
-    netD = netD.cuda()
+    netG = torch.nn.DataParallel(netG).cuda()
+    netD = torch.nn.DataParallel(netD).cuda()
     #optimizerG = optimizerG.cuda()
     #optimizerD = optimizerD.cuda()
     criterion = criterion.cuda()
@@ -235,8 +290,6 @@ for epoch in range(10000):
         inputv = Variable(input)
         labelv = Variable(label)
 
-        print('real cpu', real_cpu.size())
-        
         output = netD(inputv)
         errD_real = criterion(output, labelv)
         errD_real.backward()
@@ -264,17 +317,18 @@ for epoch in range(10000):
         D_G_z2 = output.data.mean()
         optimizerG.step()
 
-        print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
-              % (epoch, 100, i, len(train_loader),
-                 errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2))
-        if i % 100 == 0:
-            print('real_cpu.size()', real_cpu.size())
-            vutils.save_image(real_cpu,
-                    '%s/real_samples.png' % args.outf,
-                    normalize=True)
-            vutils.save_image(fake.data.view(-1,1,28,28),
-                    '%s/fake_samples.png' % (args.outf),
-                    normalize=True)
+        if(epoch %1 ==0):
+            print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
+                  % (epoch, 100, i, len(train_loader),
+                     errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2))
+            if i % 100 == 0:
+                print('real_cpu.size()', real_cpu.size())
+                vutils.save_image(real_cpu,
+                                  '%s/real_samples.png' % args.outf,
+                                  normalize=True)
+                vutils.save_image(fake.data.view(-1,1,28,28),
+                                  '%s/fake_samples.png' % (args.outf),
+                                  normalize=True)
 
     # do checkpointing
     #torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (args.outf, epoch))

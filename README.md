@@ -27,6 +27,15 @@ This produces phantom digits that seem plausible, but there might be some genera
 that I am missing. 
 
 
+In the fully connected version of the generator (decoder), I let it run for a day to get samples that reconstruct zeros and ones,
+but it has trouble with other digits, although the generated samples are most definitely reconstructions of digits, even if incorrectly reconstructed.
+Moreover, styles aren't reconstructed properly either. Aspects such as slant and thickness are examples of stylistic considerations.
 
-Samples - fake_samples.png and real_samples.png
+It is possible that I might have to include the additional term in the paper consisting of the ancillary generator with parameters tied with the encoder/primary generator.
+
+
+Samples 
+real_samples.png, fake_samples.png (conv arch)
+real_fc_gen.png, fake_fc_gen.png (fully connected arch for generator decoder)
+
 

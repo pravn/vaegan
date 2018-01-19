@@ -144,7 +144,7 @@ class NetD(nn.Module):
     def __init__(self):
         super(NetD, self).__init__()
 
-        self.main = nn.Sequential(
+        self.D_l = nn.Sequential(
         #state size 1x28x28
             #28x28->16x16
             nn.Conv2d(1,8,2,2,2,bias=False),
@@ -156,6 +156,13 @@ class NetD(nn.Module):
             #8x8->4x4
             nn.Conv2d(16,32,4,2,1,bias=False),
             nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2,inplace=True)
+            #4x4->1x1
+            #nn.Conv2d(32,1,4,1,0),
+            #nn.Sigmoid()
+            )
+
+        self.main = nn.Sequential(
             #4x4->1x1
             nn.Conv2d(32,1,4,1,0),
             nn.Sigmoid()
@@ -163,9 +170,10 @@ class NetD(nn.Module):
 
 
     def forward(self,x):
-        o = self.main(x.view(-1,1,28,28))
+        d_l = self.D_l(x.view(-1,1,28,28))
+        o = self.main(d_l)
         #o = self.main(x.view(-1,784))
-        return o
+        return d_l, o
 
 def loss_function(recon_x, x, mu, logvar,bsz=100):
     #BCE = F.binary_cross_entropy(recon_x.view(-1,784), x.view(-1, 784))

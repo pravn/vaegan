@@ -28,7 +28,7 @@ The lines are as follows:
 
 "To achieve this, let $Dis_l(x)$ denote the hidden representation of the $l$^{th} layer of the discriminator. We introduce a Gaussian observation model for $Dis_l(x)$ with mean $Dis_l(\tilde{x})$ and identity covariance
 
-$p(Dis_l(x)|z) = \mathcal{N}(Dis_l(x)|Dis_l(\tilde{x}),I)$
+$$p(Dis_l(x)|z) = \mathcal{N}(Dis_l(x)|Dis_l(\tilde{x}),I)$$
 
 
 Samples 

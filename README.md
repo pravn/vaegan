@@ -1,4 +1,4 @@
-#GAN
+## GAN ##
 Adapts pytorch repo code to work with 28x28 data.
 
 One needs to know how to work with transpose convolutions. 
@@ -7,31 +7,28 @@ http://deeplearning.net/software/theano/tutorial/conv_arithmetic.html#transposed
 
 The notebook scratch.ipynb has some example attempts. 
 
-#GAN VAE
-An implementation attempt of the GAN+VAE paper 
+## GAN VAE ##
+An implementation attempt of the GAN+VAE pape.
 
 Autoencoding beyond pixels using a learned similarity metric
 https://arxiv.org/abs/1512.09300
 
 This paper attempts to add a learned reconstruction loss to a VAE.
 The VAE loss term for log p(x|z) in the decoder is replaced by a reconstruction loss
-proportional to p(D(x)|D(x_tilde)) ~ N(D(x)|D(x_tilde),I), where x is an input image, x_tilde is a
+proportional to $p(D(x)|D(x_\tilde)) \sim N(D_l(x)|D_l(\tilde{x}),I)$, where $x$ is an input image, $\tilde{x}$ is a
 sample generated from the decoder Dec(z).
-D(x) is the output of data passed into discriminator
-D(x_tilde) is the output of model (fake) passed into discriminator
 
+$D_l$ is the output of the $l$^{th} hidden layer of the discriminator. It is NOT the output of the discriminator itself. This is a crucial point in that the discriminator outputs a number between 0 and 1 after being passed into the sigmoid activation function. While it is conceivable that one could use this kind of setup, it utterly fails to reproduce the input. However, things improve after we pick the intermediate layer output (presumably, because it has features and is therefore more informative than 0, 1). The resulting loss function is MSE for these learned features. 
 
-We therefore seem to be minimizing (D(x)-D(Dec(z)))^2.
+We therefore seem to be minimizing (D_l(x)-D_l(Dec(z)))^2.
 
-This produces phantom digits that seem plausible, but there might be some generator/discriminator dynamics
-that I am missing. 
+Curiously, the paper has all the details laid out properly, although it is slightly obfuscated, or perhaps I was a little too dense to interpret it correctly.
 
+The lines are as follows:
 
-In the fully connected version of the generator (decoder), I let it run for a day to get samples that reconstruct zeros and ones,
-but it has trouble with other digits, although the generated samples are most definitely reconstructions of digits, even if incorrectly reconstructed.
-Moreover, styles aren't reconstructed properly either. Aspects such as slant and thickness are examples of stylistic considerations.
+"To achieve this, let $Dis_l(x)$ denote the hidden representation of the $l$^{th} layer of the discriminator. We introduce a Gaussian observation model for $Dis_l(x)$ with mean $Dis_l(\tilde{x})$ and identity covariance
 
-It is possible that I might have to include the additional term in the paper consisting of the ancillary generator with parameters tied with the encoder/primary generator.
+$p(Dis_l(x)|z) = \mathcal{N}(Dis_l(x)|Dis_l(\tilde{x}),I)$
 
 
 Samples 

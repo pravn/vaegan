@@ -97,16 +97,21 @@ class VAE(nn.Module):
     def dec_params(self):
         return self.fc3, self.fc4
 
-    def forward(self, x):
-        #mu, logvar = self.encode(x.view(-1, 784))
-        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
-        z = self.reparameterize(mu, logvar)
-        #return self.decode_new(z).view(-1,28,28), mu, logvar
-        return self.decode(z).view(-1,28,28),mu,logvar
+    def return_weights(self):
+        return self.fc3.weight, self.fc4.weight
 
-class Dummy(nn.Module):
+    def forward(self, x,fc3_weight, fc4_weight):
+       self.fc3.weight = fc3_weight
+       self.fc4_weight = fc4_weight
+        
+       mu, logvar = self.encode_new(x.view(-1, 1,28,28))
+       z = self.reparameterize(mu, logvar)
+       return self.decode(z), mu,logvar
+        #return mu,logvar
+
+class Aux(nn.Module):
     def __init__(self):
-        super(Dummy,self).__init__()
+        super(Aux,self).__init__()
 
         self.fc3 = nn.Linear(20,400)
         self.fc4 = nn.Linear(400,784)
@@ -129,13 +134,18 @@ class Dummy(nn.Module):
     def dec_params(self):
         return self.fc3,self.fc4
 
-    
+    def return_weights(self):
+        return self.fc3.weight, self.fc4.weight
 
-    def forward(self,z,other):
-        self.fc3,self.fc4= other.dec_params()
-        #z = self.reparameterize(mu,logvar)
-        other.fc3,other.fc4 = self.dec_params()
-        return self.decode(z).view(-1,28,28)
+    
+    def forward(self,mu,logvar,fc3_weight, fc4_weight):
+        self.fc3.weight = fc3_weight
+        self.fc4.weight = fc4_weight
+        
+        z = self.reparameterize(mu,logvar)
+        #other.fc3,other.fc4 = self.dec_params()
+        #return self.decode(z).view(-1,28,28)
+        return self.decode(z)
 
 
     

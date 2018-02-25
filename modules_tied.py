@@ -100,13 +100,10 @@ class VAE(nn.Module):
     def return_weights(self):
         return self.fc3.weight, self.fc4.weight
 
-    def forward(self, x,fc3_weight, fc4_weight):
-       self.fc3.weight = fc3_weight
-       self.fc4_weight = fc4_weight
-        
+    def forward(self, x):
        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
        z = self.reparameterize(mu, logvar)
-       return self.decode(z), mu,logvar
+       return mu,logvar
         #return mu,logvar
 
 class Aux(nn.Module):
@@ -127,7 +124,7 @@ class Aux(nn.Module):
         if self.training:
           std = logvar.mul(0.5).exp_()
           eps = Variable(std.data.new(std.size()).normal_())
-          return eps.mul(std).add_(mu)
+          return eps
         else:
           return mu
 
@@ -138,11 +135,11 @@ class Aux(nn.Module):
         return self.fc3.weight, self.fc4.weight
 
     
-    def forward(self,mu,logvar,fc3_weight, fc4_weight):
-        self.fc3.weight = fc3_weight
-        self.fc4.weight = fc4_weight
+    def forward(self,z):
+        #self.fc3.weight = fc3_weight
+        #self.fc4.weight = fc4_weight
         
-        z = self.reparameterize(mu,logvar)
+        #z = self.reparameterize(mu,logvar)
         #other.fc3,other.fc4 = self.dec_params()
         #return self.decode(z).view(-1,28,28)
         return self.decode(z)

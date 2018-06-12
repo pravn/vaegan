@@ -17,6 +17,12 @@ in the decoder is replaced by a reconstruction loss
 proportional to $p(D_l(x)|D(\tilde_{x}_l)) \sim N(D_l(x)|D_l(\tilde{x}),I)$, where $x$ is an input image, $\tilde{x}$ is a
 sample generated from the decoder Dec(z).
 
+#LSGAN VAE#
+Ongoing work to replace decoder with an LSGAN 
+https://github.com/zzzucf/lsgan-gp
+
+See samples (real, fake)
+
 $D_l$ is the output of the $l$^{th} hidden layer of the discriminator. It is NOT the output of the discriminator itself. This is a crucial point in that the discriminator outputs a number between 0 and 1 after being passed into the sigmoid activation function. While it is conceivable that one could use this kind of setup, it utterly fails to reproduce the input. However, things improve after we pick the intermediate layer output (presumably, because it has features and is therefore more informative than 0, 1). The resulting loss function is MSE for these learned features. 
 
 We therefore seem to be minimizing (D_l(x)-D_l(Dec(z)))^2.

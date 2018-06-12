@@ -182,6 +182,21 @@ class NetD(nn.Module):
         #o = self.main(x.view(-1,784))
         return d_l, o
 
+def get_direct_gradient_penalty(netD, x, gamma, cuda):
+    if cuda:
+        x = x.cuda()
+
+    x = autograd.Variable(x, requires_grad=True)
+    output = netD(x)
+    gradOutput = torch.ones(output.size()).cuda() if cuda else torch.ones(output.size())
+    
+    gradient = torch.autograd.grad(outputs=output, inputs=x, grad_outputs=gradOutput, create_graph=True, retain_graph=True, only_inputs=True)[0]
+    gradientPenalty = (gradient.norm(2, dim=1)).mean() * gamma
+    
+    return gradientPenalty
+
+    
+    
 def loss_function(recon_x, x, mu, logvar,bsz=100):
     #BCE = F.binary_cross_entropy(recon_x.view(-1,784), x.view(-1, 784))
     #MSE = F.mse_loss(recon_x.view(-1,784), x.view(-1,784))

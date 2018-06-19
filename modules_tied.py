@@ -103,7 +103,7 @@ class VAE(nn.Module):
     def forward(self, x):
        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
        z = self.reparameterize(mu, logvar)
-       return mu,logvar
+       return mu,logvar, self.decode_new(z)
         #return mu,logvar
 
 class Aux(nn.Module):
@@ -197,10 +197,10 @@ def get_direct_gradient_penalty(netD, x, gamma, cuda):
 
     
     
-def loss_function(recon_x, x, mu, logvar,bsz=100):
+def loss_function(recon_x, x, mu, logvar):
     #BCE = F.binary_cross_entropy(recon_x.view(-1,784), x.view(-1, 784))
     #MSE = F.mse_loss(recon_x.view(-1,784), x.view(-1,784))
-    MSE = F.mse_loss(recon_x,x)
+    MSE = F.mse_loss(recon_x,x,size_average=False)
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -208,6 +208,4 @@ def loss_function(recon_x, x, mu, logvar,bsz=100):
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     # Normalise by same number of elements as in reconstruction
-    KLD /= bsz * 784
-
     return MSE + KLD

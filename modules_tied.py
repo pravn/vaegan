@@ -9,9 +9,9 @@ from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import torchvision.utils as vutils
 
-class VAE(nn.Module):
+class CVAE(nn.Module):
     def __init__(self):
-        super(VAE, self).__init__()
+        super(CVAE, self).__init__()
 
         self.fc1 = nn.Linear(784, 400)
         self.fc21 = nn.Linear(400, 20)
@@ -54,7 +54,7 @@ class VAE(nn.Module):
 
         self.dec_ = nn.Sequential(
             #1x1->4x4
-            nn.ConvTranspose2d(20,20*8,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
+            nn.ConvTranspose2d(30,20*8,4,1,0,bias=False),  #(ic,oc,kernel,stride,padding)
             nn.BatchNorm2d(20*8), 
             nn.ReLU(True),
             nn.ConvTranspose2d(20*8,20*16,4,2,1,bias=False), #4x4->8x8
@@ -100,10 +100,11 @@ class VAE(nn.Module):
     def return_weights(self):
         return self.fc3.weight, self.fc4.weight
 
-    def forward(self, x):
+    def forward(self, x,label):
        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
-       z = self.reparameterize(mu, logvar)
-       return mu,logvar, self.decode_new(z)
+       z = self.reparameterize(mu, logvar).view(-1,20)
+       catz = torch.cat((z,label),1)
+       return mu,logvar, self.decode_new(catz)
         #return mu,logvar
 
 class Aux(nn.Module):
@@ -153,31 +154,30 @@ class NetD(nn.Module):
 
         self.D_l = nn.Sequential(
         #state size 1x28x28
-            #28x28->16x16
-            nn.Conv2d(1,8,2,2,2,bias=False),
+            #28x28->14x14
+            nn.Conv2d(1,8,4,2,1,bias=False),
             nn.LeakyReLU(0.2, inplace=True),
-            #16x16->8x8
-            nn.Conv2d(8,16,4,2,1,bias=False),
+            #14x14->8x8
+            nn.Conv2d(8,16,4,2,2,bias=False),
             nn.BatchNorm2d(16),
             nn.LeakyReLU(0.2,inplace=True),
             #8x8->4x4
             nn.Conv2d(16,32,4,2,1,bias=False),
             nn.BatchNorm2d(32),
-            nn.LeakyReLU(0.2,inplace=True)
-            #4x4->1x1
-            #nn.Conv2d(32,1,4,1,0),
-            #nn.Sigmoid()
+            nn.LeakyReLU(0.2,inplace=True),
             )
 
         self.main = nn.Sequential(
-            #4x4->1x1
-            nn.Conv2d(32,1,4,1,0),
+            #266->1
+            nn.Linear(522,1),
             nn.Sigmoid()
             )
 
 
-    def forward(self,x):
+    def forward(self,x,label):
         d_l = self.D_l(x.view(-1,1,28,28))
+        d_l = d_l.view(-1,512)
+        d_l = torch.cat((d_l,label),1)
         o = self.main(d_l)
         #o = self.main(x.view(-1,784))
         return d_l, o

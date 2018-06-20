@@ -15,7 +15,7 @@ import torch
 
 
 #models
-from modules_tied import VAE
+from modules_tied import CVAE
 from modules_tied import Aux
 from modules_tied import NetD
 from modules_tied import loss_function
@@ -40,8 +40,8 @@ def plot_losses(epoch,e_fake_batch,e_enc_batch):
     
     
 
-def get_direct_gradient_penalty(netD, x, gamma, cuda):
-    _,output = netD(x)
+def get_direct_gradient_penalty(netD, x, label, gamma, cuda):
+    _,output = netD(x,label)
     gradOutput = torch.ones(output.size()).cuda() if cuda else torch.ones(output.size())
     
     gradient = torch.autograd.grad(outputs=output,
@@ -78,22 +78,27 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
         e_enc  = []
         epochs = []
 
+        label_vector_tmp = Variable(torch.zeros(bsz,10))
+
     for epoch in range(10000):
         e_fake_batch = 0
         e_enc_batch  = 0
 
-        for i, (data,_) in enumerate(train_loader):
+        for i, (data,label) in enumerate(train_loader):
             gamma = 0.02
-            real_cpu = data;
+            real_cpu = data
+
+            v = label.view(-1,1)
+            label_vector_tmp.zero_()
+            label_vector_tmp.scatter_(1,v,1)
+            label_vector = Variable(label_vector_tmp).cuda()
 
             real_cpu = real_cpu.cuda()
             input.resize_as_(real_cpu).copy_(real_cpu)
-            label.resize_(bsz).fill_(real_label)
 
             dataSize = input.size(0)
             inputv = Variable(input,requires_grad=True)
             #irrelevant here 
-            labelv = Variable(label)
 
             for p in netD.parameters():
                 p.requires_grad = True
@@ -105,10 +110,10 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
 
 
             #fc3_weight,fc4_weight = aux.return_weights()
-            mu,logvar, fake = netG(inputv)
+            mu,logvar, fake = netG(inputv,label_vector)
 
-            x_l_tilde, output_fake = netD(fake)
-            x_l, output_real = netD(inputv)
+            x_l_tilde, output_fake = netD(fake,label_vector)
+            x_l, output_real = netD(inputv,label_vector)
             #x_l_aux, output_fake_aux = netD(fake_aux)
 
             pdist = l1dist(input.view(dataSize,-1), fake.view(dataSize,-1)).mul(lamb)
@@ -122,7 +127,7 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             #gradient penalty
             #need to set gamma 
             #print('inputv.size()',inputv.size())
-            gp = get_direct_gradient_penalty(netD,inputv,10,True)
+            gp = get_direct_gradient_penalty(netD,inputv,label_vector,10,True)
             gp.backward(retain_graph=True)
 
             optimizerD.step()
@@ -137,10 +142,10 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             L_enc = gamma*loss_function(x_l_tilde, x_l,mu,logvar)/bsz
             L_enc.backward()
 
-            mu,logvar, fake = netG(inputv)
+            mu,logvar, fake = netG(inputv,label_vector)
 
-            x_l_tilde, output_fake = netD(fake)
-            x_l, output_real = netD(inputv)
+            x_l_tilde, output_fake = netD(fake,label_vector)
+            x_l, output_real = netD(inputv,label_vector)
             #x_l_aux, output_fake_aux = netD(fake_aux)
 
             pdist = l1dist(input.view(dataSize,-1), fake.view(dataSize,-1)).mul(lamb)
@@ -149,7 +154,7 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             errD_fake = -LeakyReLU(output_real - output_fake + pdist).mean()
             errD_fake.backward()
 
-            gp = -get_direct_gradient_penalty(netD,inputv,10,True)
+            gp = -get_direct_gradient_penalty(netD,inputv,label_vector,10,True)
             gp.backward(retain_graph=True)
             
             optimizerG.step()
@@ -176,3 +181,43 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
         e_fake.append(e_fake_batch)
         e_enc.append(e_enc_batch)
         plot_losses(epochs,e_fake,e_enc)
+
+    def test(epoch):
+        batch_size = 128
+        model.eval()
+        test_loss = 0
+
+        label_vector_tmp = torch.FloatTensor(batch_size, 10)
+    
+        for i, (data, label) in enumerate(test_loader):
+            if(data.size(0)!=128):
+                break
+
+        v = label.view(-1,1)
+        label_vector_tmp.zero_()
+        label_vector_tmp.scatter_(1,v,1)
+        label_vector = Variable(label_vector_tmp)
+
+        
+        data = data.view(-1, data_size)
+        
+        if args.cuda:
+            data = data.cuda()
+            label_vector = label_vector.cuda()
+            
+        data = Variable(data, volatile=True)
+        
+        recon_batch, mu, logvar = model(data, label_vector)
+
+        test_loss += loss_function(recon_batch, data, mu, logvar).data[0]
+        if i == 0:
+          n = min(data.size(0), 8)
+          comparison = torch.cat([data.view(batch_size, 1, 28, 28)[:n],
+                                  recon_batch.view(batch_size, 1, 28, 28)[:n]])
+          save_image(comparison.data.cpu(),
+                     'results/reconstruction_' + str(epoch) + '.png', nrow=n)
+
+    test_loss /= len(test_loader.dataset)
+    print('====> Test set loss: {:.4f}'.format(test_loss))
+
+            

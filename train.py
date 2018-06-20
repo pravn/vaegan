@@ -59,7 +59,7 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
     real_label=1
     fake_label=0
     USE_CUDA=1
-    lamb = 1e-1
+    lamb = 1e-3
     l1dist = nn.PairwiseDistance(1)
     l2dist = nn.PairwiseDistance(2)
     LeakyReLU = nn.LeakyReLU(0)
@@ -83,7 +83,7 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
         e_enc_batch  = 0
 
         for i, (data,_) in enumerate(train_loader):
-            gamma = 1
+            gamma = 0.02
             real_cpu = data;
 
             real_cpu = real_cpu.cuda()
@@ -102,7 +102,8 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             #x_l, x_l_tilde
             #do discriminator calculations
             netD.zero_grad()
-            netG.zero_grad()
+
+
             #fc3_weight,fc4_weight = aux.return_weights()
             mu,logvar, fake = netG(inputv)
 
@@ -131,8 +132,26 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
                 p.requires_grad = False
 
 
+            netG.zero_grad()
+
             L_enc = gamma*loss_function(x_l_tilde, x_l,mu,logvar)/bsz
             L_enc.backward()
+
+            mu,logvar, fake = netG(inputv)
+
+            x_l_tilde, output_fake = netD(fake)
+            x_l, output_real = netD(inputv)
+            #x_l_aux, output_fake_aux = netD(fake_aux)
+
+            pdist = l1dist(input.view(dataSize,-1), fake.view(dataSize,-1)).mul(lamb)
+
+            #print('pdist.size()',pdist.size())
+            errD_fake = -LeakyReLU(output_real - output_fake + pdist).mean()
+            errD_fake.backward()
+
+            gp = -get_direct_gradient_penalty(netD,inputv,10,True)
+            gp.backward(retain_graph=True)
+            
             optimizerG.step()
 
 

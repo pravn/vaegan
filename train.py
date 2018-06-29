@@ -15,10 +15,9 @@ import torch
 
 
 #models
-from modules_tied import CVAE
-from modules_tied import Aux
-from modules_tied import NetD
-from modules_tied import loss_function
+from CVAEWGAN import Encode
+from CVAEWGAN import Decode
+from CVAEWGAN import NetD
 
 def plot_losses(epoch,e_fake_batch,e_enc_batch):
     plt.figure()
@@ -38,41 +37,31 @@ def plot_losses(epoch,e_fake_batch,e_enc_batch):
     plt.savefig('encoder_loss.png')
     plt.close()
     
-    
+def free_params(module: nn.Module):
+    for p in module.parameters():
+        p.requires_grad = True
 
-def get_direct_gradient_penalty(netD, x, label, gamma, cuda):
-    _,output = netD(x,label)
-    gradOutput = torch.ones(output.size()).cuda() if cuda else torch.ones(output.size())
-    
-    gradient = torch.autograd.grad(outputs=output,
-                                   inputs=x, grad_outputs=gradOutput,
-                                   create_graph=True, retain_graph=True,
-                                   only_inputs=True)[0]
-    gradientPenalty = (gradient.norm(2, dim=1)).mean() * gamma
-    
-    return gradientPenalty
+def freeze_params(module: nn.Module):
+    for p in module.parameters():
+        p.requires_grad = False    
 
-
-def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
+def run_trainer(netEnc,netDec,netD,optimizerEnc,
+                optimizerDec,
+                optimizerD,train_loader,bsz):
     input = torch.FloatTensor(bsz,28,28)
     label = torch.FloatTensor(bsz)
     real_label=1
     fake_label=0
     USE_CUDA=1
     lamb = 1e-3
-    l1dist = nn.PairwiseDistance(1)
-    l2dist = nn.PairwiseDistance(2)
-    LeakyReLU = nn.LeakyReLU(0)
 
     if(USE_CUDA):
-        netG=netG.cuda()
-        netD=netD.cuda()
+        netEnc=netEnc.cuda()
+        netDec=netDec.cuda()
+        netDis=netD.cuda()
         #aux = aux.cuda()
         #criterion=criterion.cuda()
         input,label=input.cuda(), label.cuda()
-        l1dist = l1dist.cuda()
-        l2dist = l2dist.cuda()
-        LeakyReLU = LeakyReLU.cuda()
 
         e_fake = []
         e_enc  = []
@@ -80,12 +69,23 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
 
         label_vector_tmp = Variable(torch.zeros(bsz,10))
 
+    one = torch.Tensor(1)
+    mone = torch.Tensor(-1)
+    if torch.cuda.is_available():
+        one = one.cuda()
+        mone = mone.cuda()
+
     for epoch in range(10000):
         e_fake_batch = 0
         e_enc_batch  = 0
 
         for i, (data,label) in enumerate(train_loader):
-            gamma = 0.02
+
+            netEnc.zero_grad()
+            netDec.zero_grad()
+            netD.zero_grad()
+            
+            LAMBDA = 1.5
             real_cpu = data
 
             v = label.view(-1,1)
@@ -100,68 +100,58 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             inputv = Variable(input,requires_grad=True)
             #irrelevant here 
 
-            for p in netD.parameters():
-                p.requires_grad = True
 
+            freeze_params(netEnc)
+            freeze_params(netDec)
+            free_params(netD)
+            
             #need variables for dis
             #x_l, x_l_tilde
             #do discriminator calculations
             netD.zero_grad()
 
 
-            #fc3_weight,fc4_weight = aux.return_weights()
-            mu,logvar, fake = netG(inputv,label_vector)
+            mu_real = netEnc(inputv)
+            mu_fake = torch.randn_like(mu_real)
 
-            x_l_tilde, output_fake = netD(fake,label_vector)
-            x_l, output_real = netD(inputv,label_vector)
-            #x_l_aux, output_fake_aux = netD(fake_aux)
 
-            pdist = l1dist(input.view(dataSize,-1), fake.view(dataSize,-1)).mul(lamb)
+            output_real = netD(mu_real,label_vector)
+            output_fake = netD(mu_fake, label_vector)
 
-            #print('pdist.size()',pdist.size())
-            errD_fake = LeakyReLU(output_real - output_fake + pdist).mean()
-            #print('errD_fake.size()',errD_fake.size())
+            print('output_real.mean()', output_real.mean())
+            print('output_fake.mean()', output_fake.mean())
+            
 
-            errD_fake.backward(retain_graph=True)
+            #maximize log(D(output_real)) + log(1-D(1-output_fake))
+            #or minimize negative of that
+            L_real = torch.log(output_real).mean()#minimize the negative 
+            L_fake = torch.log(1-output_fake).mean() #...
 
-            #gradient penalty
-            #need to set gamma 
-            #print('inputv.size()',inputv.size())
-            gp = get_direct_gradient_penalty(netD,inputv,label_vector,10,True)
-            gp.backward(retain_graph=True)
-
+            L_real.backward()
+            L_fake.backward()
+            
             optimizerD.step()
 
 
-            for p in netD.parameters():
-                p.requires_grad = False
-
-
-            netG.zero_grad()
-
-            L_enc = gamma*loss_function(x_l_tilde, x_l,mu,logvar)/bsz
-            L_enc.backward()
-
-            mu,logvar, fake = netG(inputv,label_vector)
-
-            x_l_tilde, output_fake = netD(fake,label_vector)
-            x_l, output_real = netD(inputv,label_vector)
-            #x_l_aux, output_fake_aux = netD(fake_aux)
-
-            pdist = l1dist(input.view(dataSize,-1), fake.view(dataSize,-1)).mul(lamb)
-
-            #print('pdist.size()',pdist.size())
-            errD_fake = -LeakyReLU(output_real - output_fake + pdist).mean()
-            errD_fake.backward()
-
-            gp = -get_direct_gradient_penalty(netD,inputv,label_vector,10,True)
-            gp.backward(retain_graph=True)
+            free_params(netEnc)
+            free_params(netDec)
+            freeze_params(netD)
             
-            optimizerG.step()
+            z_real = netEnc(inputv)
+            x_recon = netDec(z_real)
+
+            d_real = netD(z_real)
+            recon_loss = criterion(x_recon,inputv)
+
+            recon_loss.backward(one)
+            d_loss.backward(one)
+
+            optimizerEnc.step()
+            optimizerDec.step()
 
 
-            e_fake_batch += errD_fake.data.cpu().numpy()
-            e_enc_batch += L_enc.data.cpu().numpy()
+            #e_fake_batch += output_fake.data.cpu().numpy()
+            #e_recon_batch += recon_loss.data.cpu().numpy()
 
 
             if (i % 100 == 0):
@@ -177,10 +167,10 @@ def run_trainer(netG,netD,optimizerG,optimizerD,train_loader,bsz):
             
 
         print('losses', epoch, e_fake_batch, e_enc_batch)
-        epochs.append(epoch)
-        e_fake.append(e_fake_batch)
-        e_enc.append(e_enc_batch)
-        plot_losses(epochs,e_fake,e_enc)
+        #epochs.append(epoch)
+        #e_fake.append(e_fake_batch)
+        #e_enc.append(e_enc_batch)
+        #plot_losses(epochs,e_fake,e_enc)
 
     def test(epoch):
         batch_size = 128

@@ -8,6 +8,8 @@ from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import torchvision.utils as vutils
+from torch.optim.lr_scheduler import StepLR
+
 
 import matplotlib.pyplot as plt
 import torch
@@ -19,24 +21,15 @@ from CVAEWGAN import Encode
 from CVAEWGAN import Decode
 from CVAEWGAN import NetD
 
-def plot_losses(epoch,e_fake_batch,e_enc_batch):
+def plot_losses(epoch,data):
     plt.figure()
-    plt.plot(epoch,e_fake_batch)
+    plt.plot(epoch,data)
     plt.title('fake')
     plt.xlabel('epoch')
     #plt.show()
-    plt.savefig('fake_loss.png')
-    
+    plt.savefig('recon_loss.png')
     plt.close()
 
-    plt.figure()
-    print('e_enc', e_enc_batch)
-    plt.plot(epoch,e_enc_batch)
-    plt.title('encoder loss')
-    plt.xlabel('epoch')
-    plt.savefig('encoder_loss.png')
-    plt.close()
-    
 def free_params(module: nn.Module):
     for p in module.parameters():
         p.requires_grad = True
@@ -47,13 +40,13 @@ def freeze_params(module: nn.Module):
 
 def run_trainer(netEnc,netDec,netD,optimizerEnc,
                 optimizerDec,
-                optimizerD,train_loader,bsz):
+                optimizerD,train_loader,bsz,criterion):
     input = torch.FloatTensor(bsz,28,28)
     label = torch.FloatTensor(bsz)
     real_label=1
     fake_label=0
     USE_CUDA=1
-    lamb = 1e-3
+    lamb = 10
 
     if(USE_CUDA):
         netEnc=netEnc.cuda()
@@ -63,11 +56,18 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
         #criterion=criterion.cuda()
         input,label=input.cuda(), label.cuda()
 
-        e_fake = []
-        e_enc  = []
-        epochs = []
+        #e_fake = []
+        #e_enc  = []
+        #epochs = []
+        e_recon = []
+        epochs  = []
 
         label_vector_tmp = Variable(torch.zeros(bsz,10))
+
+
+    enc_scheduler = StepLR(optimizerEnc, step_size=30, gamma=0.5)
+    dec_scheduler = StepLR(optimizerDec, step_size=30, gamma=0.5)
+    dis_scheduler = StepLR(optimizerD, step_size=30, gamma=0.5)
 
     one = torch.Tensor(1)
     mone = torch.Tensor(-1)
@@ -78,6 +78,7 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
     for epoch in range(10000):
         e_fake_batch = 0
         e_enc_batch  = 0
+        e_recon_batch = 0
 
         for i, (data,label) in enumerate(train_loader):
 
@@ -85,7 +86,6 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
             netDec.zero_grad()
             netD.zero_grad()
             
-            LAMBDA = 1.5
             real_cpu = data
 
             v = label.view(-1,1)
@@ -97,7 +97,7 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
             input.resize_as_(real_cpu).copy_(real_cpu)
 
             dataSize = input.size(0)
-            inputv = Variable(input,requires_grad=True)
+            inputv = Variable(input)
             #irrelevant here 
 
 
@@ -118,17 +118,15 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
             output_real = netD(mu_real,label_vector)
             output_fake = netD(mu_fake, label_vector)
 
-            print('output_real.mean()', output_real.mean())
-            print('output_fake.mean()', output_fake.mean())
-            
 
             #maximize log(D(output_real)) + log(1-D(1-output_fake))
             #or minimize negative of that
-            L_real = torch.log(output_real).mean()#minimize the negative 
-            L_fake = torch.log(1-output_fake).mean() #...
+            L_real = -torch.log(1-output_real).mean()#minimize the negative
+            L_fake = -torch.log(output_fake).mean() #...
 
-            L_real.backward()
-            L_fake.backward()
+
+            L_real.backward(one,retain_graph=True)
+            L_fake.backward(one)
             
             optimizerD.step()
 
@@ -138,39 +136,49 @@ def run_trainer(netEnc,netDec,netD,optimizerEnc,
             freeze_params(netD)
             
             z_real = netEnc(inputv)
-            x_recon = netDec(z_real)
+            x_recon = netDec(z_real,label_vector)
 
-            d_real = netD(z_real)
+            d_real = netD(z_real,label_vector)
             recon_loss = criterion(x_recon,inputv)
+            d_loss = -lamb * (torch.log(d_real)).mean()
 
-            recon_loss.backward(one)
+            #print('d_loss', d_loss)
+                
+
+            recon_loss.backward(one,retain_graph=True)
             d_loss.backward(one)
+
+            #print('recon_loss', recon_loss)
 
             optimizerEnc.step()
             optimizerDec.step()
 
 
+            e_recon_batch += recon_loss.data.cpu()
+
             #e_fake_batch += output_fake.data.cpu().numpy()
             #e_recon_batch += recon_loss.data.cpu().numpy()
 
 
+        
             if (i % 100 == 0):
                 print('epoch ', epoch)
             #print('real_cpu.size()', real_cpu.size())
                 vutils.save_image(real_cpu,
                                 './real_samples.png',
                                     normalize=True)
-                vutils.save_image(fake.data.view(-1,1,28,28),
+                vutils.save_image(x_recon.data.view(-1,1,28,28),
                                     './fake_samples.png',
                                     normalize=True)
 
             
 
-        print('losses', epoch, e_fake_batch, e_enc_batch)
-        #epochs.append(epoch)
+        epochs.append(epoch)
         #e_fake.append(e_fake_batch)
-        #e_enc.append(e_enc_batch)
-        #plot_losses(epochs,e_fake,e_enc)
+        e_recon.append(e_recon_batch/bsz)
+        print('epoch.shape', len(epochs))
+        print('e_recon.shape', len(e_recon))
+        plot_losses(epochs,e_recon)
 
     def test(epoch):
         batch_size = 128

@@ -109,9 +109,11 @@ class Decode(nn.Module):
             nn.Sigmoid()
             )
 
-        def forward(self,z):
-            z = z.view(-1,z.size(1),1,1)
-            return(self.dec_(z))
+    def forward(self,z,label):
+        label = label.unsqueeze(2).unsqueeze(2)
+        z = torch.cat((z,label),1)
+        z = z.view(-1,z.size(1),1,1)
+        return(self.dec_(z))
 
 
 
@@ -140,10 +142,7 @@ class NetD(nn.Module):
         )
 
     def forward(self,z,label):
-        print('z.size()', z.size())
-        print('label.size()',label.size())
         z = z.squeeze(2).squeeze(2)
-        print('z.size()',z.size())
         z = torch.cat((z,label),1)
         x = self.main(z)
         return x

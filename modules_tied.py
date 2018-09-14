@@ -100,9 +100,7 @@ class VAE(nn.Module):
     def return_weights(self):
         return self.fc3.weight, self.fc4.weight
 
-    def forward(self, x,fc3_weight, fc4_weight):
-       self.fc3.weight = fc3_weight
-       self.fc4_weight = fc4_weight
+    def forward(self, x):
         
        mu, logvar = self.encode_new(x.view(-1, 1,28,28))
        z = self.reparameterize(mu, logvar)
@@ -147,6 +145,41 @@ class Aux(nn.Module):
         #return self.decode(z).view(-1,28,28)
         return self.decode(z)
 
+
+class Dummy(nn.Module):
+    def __init__(self):
+        super(Dummy,self).__init__()
+
+        self.fc3 = nn.Linear(20,400)
+        self.fc4 = nn.Linear(400,784)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def decode(self,z):
+        z = z.view(-1,20)
+        h3 = self.relu(self.fc3(z))
+        return self.sigmoid(self.fc4(h3))
+    
+    def reparameterize(self, mu, logvar):
+        if self.training:
+          std = logvar.mul(0.5).exp_()
+          eps = Variable(std.data.new(std.size()).normal_())
+          return eps.mul(std).add_(mu)
+        else:
+          return mu
+
+    def dec_params(self):
+        return self.fc3,self.fc4
+
+    
+
+    def forward(self,mu,logvar,other):
+        self.fc3,self.fc4= other.dec_params()
+        z = self.reparameterize(mu,logvar)
+        other.fc3,other.fc4 = self.dec_params()
+        return self.decode(z).view(-1,28,28)
+
+        
 
     
 
@@ -198,4 +231,5 @@ def loss_function(recon_x, x, mu, logvar,bsz=100):
     # Normalise by same number of elements as in reconstruction
     KLD /= bsz * 784
 
-    return MSE + KLD
+    #return MSE + KLD, MSE
+    return MSE, MSE
